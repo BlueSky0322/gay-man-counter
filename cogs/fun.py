@@ -4,14 +4,17 @@ NOTE: /gay is intentionally left out of /info — it's a secret.
 """
 
 import colorsys
+import logging
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
 import db
+
+log = logging.getLogger(__name__)
 
 ROLE_TTL = timedelta(hours=1)
 WORDS = [
@@ -24,10 +27,6 @@ HORNI_ROLE = "horni"
 JAIL_CHANNEL = "horny-jail"
 SMIRK = "😏"
 PINK = discord.Color.from_rgb(255, 105, 180)
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _pastel() -> discord.Color:
@@ -70,7 +69,7 @@ class Fun(commands.Cog):
 
         # Record expiry BEFORE assigning, so the cleanup loop catches it even if
         # assignment fails for some reason.
-        await db.add_temp_role(guild.id, role.id, member.id, _now() + ROLE_TTL)
+        await db.add_temp_role(guild.id, role.id, member.id, discord.utils.utcnow() + ROLE_TTL)
         try:
             await member.add_roles(role, reason="/gay")
         except discord.HTTPException:
@@ -125,7 +124,7 @@ class Fun(commands.Cog):
         role = await self._get_or_create_horni_role(guild)
         channel = await self._get_or_create_jail_channel(guild, role)
 
-        expires = _now() + JAIL_TTL
+        expires = discord.utils.utcnow() + JAIL_TTL
         locked, role_only = [], []
         for m in targets:
             if role:
@@ -175,7 +174,7 @@ class Fun(commands.Cog):
                 value="Grant me: " + ", ".join(f"**{m}**" for m in missing),
                 inline=False,
             )
-        embed.timestamp = _now()
+        embed.timestamp = discord.utils.utcnow()
         await interaction.followup.send(embed=embed)
 
     async def _get_or_create_horni_role(self, guild: discord.Guild):
@@ -220,50 +219,88 @@ class Fun(commands.Cog):
         expiry = self._jailed.get(key)
         if not expiry:
             return
-        if _now() < expiry:
+        if discord.utils.utcnow() < expiry:
             try:
                 await message.add_reaction(SMIRK)
             except discord.HTTPException:
                 pass
         else:
-            self._jailed.pop(key, None)  # sentence served; cleanup loop handles the rest
+            # Sentence served — release now rather than waiting up to a full
+            # cleanup tick (otherwise they'd stay muted/deafened for ~60s more).
+            jail = await db.get_jail(message.guild.id, message.author.id)
+            if jail:
+                await self._release(jail)
+            else:
+                self._jailed.pop(key, None)  # record already gone; clear memory
 
-    async def _unjail(self, jail: dict):
+    async def _unjail(self, jail: dict) -> bool:
+        """Undo the mute/deafen/role for one jailed member.
+
+        Returns True when it's safe to forget the sentence (released, or the
+        guild/member is genuinely gone), and False on a transient failure so the
+        next cleanup tick retries instead of leaving someone stuck muted.
+        """
         guild = self.bot.get_guild(jail["guild_id"])
-        if guild:
-            member = guild.get_member(jail["user_id"])
-            if member:
-                try:
-                    await member.edit(mute=False, deafen=False, reason="jail over")
-                except discord.HTTPException:
-                    pass
-                role = guild.get_role(jail["role_id"]) if jail.get("role_id") else None
-                if role:
-                    try:
-                        await member.remove_roles(role, reason="jail over")
-                    except discord.HTTPException:
-                        pass
-        self._jailed.pop((jail["guild_id"], jail["user_id"]), None)
-        await db.delete_jail(jail["guild_id"], jail["user_id"])
+        if guild is None:
+            return True  # not in this guild anymore — drop the dead record
+        member = guild.get_member(jail["user_id"])
+        if member is None:
+            # The members intent isn't enabled, so the cache is sparse (and empty
+            # right after a restart). Fall back to an explicit fetch rather than
+            # silently skipping the un-mute and stranding the user.
+            try:
+                member = await guild.fetch_member(jail["user_id"])
+            except discord.NotFound:
+                return True   # member left the guild — nothing to undo
+            except discord.HTTPException:
+                return False  # transient — retry next tick
+        try:
+            await member.edit(mute=False, deafen=False, reason="jail over")
+        except discord.HTTPException:
+            pass
+        role = guild.get_role(jail["role_id"]) if jail.get("role_id") else None
+        if role:
+            try:
+                await member.remove_roles(role, reason="jail over")
+            except discord.HTTPException:
+                pass
+        return True
+
+    async def _release(self, jail: dict):
+        """Unjail a member and, only if that succeeded, clear their records."""
+        if await self._unjail(jail):
+            self._jailed.pop((jail["guild_id"], jail["user_id"]), None)
+            await db.delete_jail(jail["guild_id"], jail["user_id"])
 
     # ------------------------------------------------------------ background
     @tasks.loop(seconds=60)
     async def cleanup_loop(self):
-        now = _now()
-        # Expired gay_* roles — deleting the role also strips it from the wearer.
-        for doc in await db.due_temp_roles(now):
-            guild = self.bot.get_guild(doc["guild_id"])
-            role = guild.get_role(doc["_id"]) if guild else None
-            if role:
-                try:
-                    await role.delete(reason="gay role expired")
-                except discord.HTTPException:
-                    pass
-            await db.delete_temp_role(doc["_id"])
+        # Guard the whole body: an unexpected error (a malformed doc, a transient
+        # Mongo failure) must not kill the loop — if it did, cleanup would stop
+        # for good and jailed users would never be released.
+        try:
+            now = discord.utils.utcnow()
+            # Expired gay_* roles — deleting the role also strips it from the wearer.
+            for doc in await db.due_temp_roles(now):
+                guild = self.bot.get_guild(doc["guild_id"])
+                if guild is None:
+                    await db.delete_temp_role(doc["_id"])  # not in guild — drop it
+                    continue
+                role = guild.get_role(doc["_id"])
+                if role is not None:
+                    try:
+                        await role.delete(reason="gay role expired")
+                    except discord.NotFound:
+                        pass  # already gone
+                    except discord.HTTPException:
+                        continue  # transient — keep the record, retry next tick
+                await db.delete_temp_role(doc["_id"])
 
-        # Released jail sentences.
-        for jail in await db.due_jails(now):
-            await self._unjail(jail)
+            # Released jail sentences.
+            for jail in await db.due_jails(now):
+                await self._release(jail)
+        except Exception:
+            log.exception("cleanup_loop iteration failed; will retry next tick")
 
     @cleanup_loop.before_loop
     async def before_cleanup(self):

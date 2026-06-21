@@ -5,8 +5,6 @@ the embeds — every user-facing message below is built right here. Colors live
 in ../theme.py.
 """
 
-from datetime import datetime, timezone
-
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -15,8 +13,18 @@ import db
 import theme
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+async def person_autocomplete(interaction: discord.Interaction, current: str):
+    """Autocomplete the `person` argument from names already on the board.
+
+    Module-level so Board and Admin's /remove share one implementation.
+    """
+    names = await db.list_person_names(interaction.guild_id)
+    current = current.lower()
+    return [
+        app_commands.Choice(name=n, value=n)
+        for n in names
+        if current in n.lower()
+    ][:25]
 
 
 def humanize(delta) -> str:
@@ -70,18 +78,20 @@ class Board(commands.Cog):
         self.bot = bot
 
     def _thumb(self, interaction: discord.Interaction, embed: discord.Embed):
-        if interaction.guild and interaction.guild.icon:
-            embed.set_thumbnail(url=interaction.guild.icon.url)
+        theme.guild_thumb(interaction, embed)
 
-    async def _person_ac(self, interaction: discord.Interaction, current: str):
-        """Autocomplete the `person` argument from names already on the board."""
-        names = await db.list_person_names(interaction.guild_id)
-        current = current.lower()
-        return [
-            app_commands.Choice(name=n, value=n)
-            for n in names
-            if current in n.lower()
-        ][:25]
+    async def _set_member_thumb(
+        self, interaction: discord.Interaction, embed: discord.Embed, user_id: int
+    ):
+        """Set a member's avatar as the embed thumbnail, if we can resolve them."""
+        member = interaction.guild.get_member(user_id)
+        if member is None:
+            try:
+                member = await interaction.guild.fetch_member(user_id)
+            except discord.HTTPException:
+                member = None
+        if member:
+            embed.set_thumbnail(url=member.display_avatar.url)
 
     @app_commands.command(
         name="board",
@@ -90,7 +100,7 @@ class Board(commands.Cog):
     @app_commands.describe(
         person="Leave blank for the full board; pick someone for their detail card"
     )
-    @app_commands.autocomplete(person=_person_ac)
+    @app_commands.autocomplete(person=person_autocomplete)
     @app_commands.guild_only()
     async def board(
         self, interaction: discord.Interaction, person: str | None = None
@@ -110,17 +120,20 @@ class Board(commands.Cog):
                 )
             )
             return
-        now = _now()
+        now = discord.utils.utcnow()
         totals = await db.totals_by_person(interaction.guild_id)
 
         def streak(p):
             return (now - p["last_mention_at"]) if p["last_mention_at"] else None
 
         # Longest clean streak first; never-mentioned names float to the top.
-        people.sort(
-            key=lambda p: streak(p).total_seconds() if streak(p) else float("inf"),
-            reverse=True,
-        )
+        # Test `is None` explicitly — a zero-length streak is falsy but is NOT
+        # "never mentioned", so it must keep its (tiny) real sort value.
+        def _streak_secs(p):
+            s = streak(p)
+            return s.total_seconds() if s is not None else float("inf")
+
+        people.sort(key=_streak_secs, reverse=True)
 
         lines = []
         for p in people:
@@ -179,7 +192,7 @@ class Board(commands.Cog):
 
         total = await db.total_mentions(interaction.guild_id, person)
         top = await db.top_mentioner(interaction.guild_id, person)
-        s = (_now() - p["last_mention_at"]) if p["last_mention_at"] else None
+        s = (discord.utils.utcnow() - p["last_mention_at"]) if p["last_mention_at"] else None
 
         if s is None:
             color = theme.BRAND
@@ -221,7 +234,7 @@ class Board(commands.Cog):
         person="Who got mentioned",
         by="Who mentioned him (defaults to you)",
     )
-    @app_commands.autocomplete(person=_person_ac)
+    @app_commands.autocomplete(person=person_autocomplete)
     @app_commands.guild_only()
     async def mention(
         self,
@@ -234,19 +247,16 @@ class Board(commands.Cog):
         prev, count = await db.log_mention(interaction.guild_id, person, credited.id)
         if prev is None:
             await interaction.response.send_message(
-                embed=theme.embed(
-                    "⚠️ Not on the Board",
-                    f"**{person}** isn't tracked yet. Add gaymen with `/add` first.",
-                    theme.WARNING,
-                ),
-                ephemeral=True,
+                embed=_missing(person), ephemeral=True
             )
             return
 
-        rank = await db.rank_of(interaction.guild_id, person, credited.id)
+        # We already know `count` (this user's new tally), so rank_of only has to
+        # count who's ahead — no redundant re-fetch of our own mention doc.
+        rank = await db.rank_of(interaction.guild_id, person, count)
         total = await db.total_mentions(interaction.guild_id, person)
         if prev["last_mention_at"]:
-            streak_val = f"**{humanize(_now() - prev['last_mention_at'])}** of peace, gone. 你就是酱咯"
+            streak_val = f"**{humanize(discord.utils.utcnow() - prev['last_mention_at'])}** of peace, gone. 你就是酱咯"
         else:
             streak_val = f"First mention on the board! Kinda sus that **{credited.display_name}** mentioned **{prev['name']}**, but ok."
 
@@ -343,7 +353,7 @@ class Board(commands.Cog):
         description="Top mentioners — overall, or for one person if you pass one.",
     )
     @app_commands.describe(person="Leave blank for the overall board; pick someone for just them")
-    @app_commands.autocomplete(person=_person_ac)
+    @app_commands.autocomplete(person=person_autocomplete)
     @app_commands.guild_only()
     async def leaderboard(
         self, interaction: discord.Interaction, person: str | None = None
@@ -463,9 +473,12 @@ class Board(commands.Cog):
     )
     @app_commands.guild_only()
     async def gayest_man(self, interaction: discord.Interaction):
+        # Defer first: we run several queries and may make an HTTP member fetch
+        # below, which can exceed the 3s interaction ack window without it.
+        await interaction.response.defer()
         totals = await db.totals_by_user(interaction.guild_id)
         if not totals:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=theme.embed(
                     "👑 The Gayest Man",
                     "Nobody has mentioned anyone yet. Use `/mention` to crown someone.",
@@ -502,18 +515,8 @@ class Board(commands.Cog):
         embed.add_field(name="💘 Favourite target", value=fav_text, inline=True)
         embed.add_field(name="📈 Lead", value=lead, inline=True)
         embed.set_footer(text=f"{len(totals)} players in the running")
-
-        # Show the winner's avatar if we can resolve the member.
-        member = interaction.guild.get_member(winner_id)
-        if member is None:
-            try:
-                member = await interaction.guild.fetch_member(winner_id)
-            except discord.HTTPException:
-                member = None
-        if member:
-            embed.set_thumbnail(url=member.display_avatar.url)
-
-        await interaction.response.send_message(embed=embed)
+        await self._set_member_thumb(interaction, embed, winner_id)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(
         name="pusswee",
@@ -521,9 +524,12 @@ class Board(commands.Cog):
     )
     @app_commands.guild_only()
     async def pusswee(self, interaction: discord.Interaction):
+        # Defer first: queries + a possible HTTP member fetch below can exceed
+        # the 3s interaction ack window otherwise.
+        await interaction.response.defer()
         people = await db.list_persons(interaction.guild_id)
         if not people:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=theme.embed(
                     "🐱 The Biggest Pusswee",
                     "The board is empty. Add someone with `/add`.",
@@ -536,7 +542,7 @@ class Board(commands.Cog):
 
         mentioned = await db.mentioned_names_by_user(interaction.guild_id)
         if not mentioned:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=theme.embed(
                     "🐱 The Biggest Pusswee",
                     "Nobody has mentioned anyone yet — no players to judge.",
@@ -546,14 +552,23 @@ class Board(commands.Cog):
             return
         totals = await db.totals_by_user(interaction.guild_id)
 
-        # For each active player: which tracked guys they've NEVER mentioned.
+        # Members linked via `/add user:@them` who've mentioned nobody still
+        # count — they dodged everyone, so they're the maximal pusswees. (We can
+        # only include members we actually know about: those linked to a tracked
+        # person. Arbitrary lurkers aren't visible without the members intent.)
+        for p in people:
+            uid = p.get("user_id")
+            if uid is not None:
+                mentioned.setdefault(uid, set())
+
+        # For each player: which tracked guys they've NEVER mentioned.
         # Most dodged wins; tie-break on fewest total mentions (the bigger coward).
         ranking = [(uid, tracked_set - said) for uid, said in mentioned.items()]
         ranking.sort(key=lambda r: (-len(r[1]), totals.get(r[0], 0)))
 
         winner_id, dodged = ranking[0]
         if not dodged:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=theme.embed(
                     "🫡 No Pusswees Here",
                     "Everyone who plays has mentioned every single guy. Respect.",
@@ -588,19 +603,9 @@ class Board(commands.Cog):
         else:
             margin = "uncontested 🐱"
         embed.add_field(name="📉 Margin", value=margin, inline=True)
-        embed.set_footer(text=f"{len(mentioned)} active players")
-
-        # Show the loser's avatar if we can resolve the member.
-        member = interaction.guild.get_member(winner_id)
-        if member is None:
-            try:
-                member = await interaction.guild.fetch_member(winner_id)
-            except discord.HTTPException:
-                member = None
-        if member:
-            embed.set_thumbnail(url=member.display_avatar.url)
-
-        await interaction.response.send_message(embed=embed)
+        embed.set_footer(text=f"{len(mentioned)} players in the running")
+        await self._set_member_thumb(interaction, embed, winner_id)
+        await interaction.followup.send(embed=embed)
 
 
 async def setup(bot: commands.Bot):

@@ -16,6 +16,29 @@ COOLDOWN_SECONDS = 10      # per (user, name): ignore repeats within this window
 CACHE_TTL_SECONDS = 30     # how long the per-guild name list is cached in memory
 
 
+def _ascii_word(ch: str) -> bool:
+    """A char that ASCII-delimits words (letters, digits, underscore).
+
+    Deliberately ASCII-only: CJK and other scripts are excluded so names in
+    those scripts match as substrings. Python's `\\b` never fires between two
+    CJK chars (they're all `\\w`), which is why bare `\\b` boundaries silently
+    fail to detect e.g. 阿强 inside 今天阿强很帅.
+    """
+    return ch.isascii() and (ch.isalnum() or ch == "_")
+
+
+def _name_pattern(name: str) -> str:
+    """An escaped name with word boundaries only on its ASCII-word edges.
+
+    'Dave' won't fire inside 'Davenport'; CJK names like '阿强' match even when
+    embedded in running CJK text; 'C++' matches despite the trailing '+'.
+    """
+    esc = re.escape(name)
+    left = r"(?<![A-Za-z0-9_])" if name and _ascii_word(name[0]) else ""
+    right = r"(?![A-Za-z0-9_])" if name and _ascii_word(name[-1]) else ""
+    return f"{left}{esc}{right}"
+
+
 class AutoDetect(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -41,8 +64,9 @@ class AutoDetect(commands.Cog):
                 p["user_id"]: p["name_lower"] for p in people if p.get("user_id")
             }
             if names:
-                # \b...\b = whole-word match, so "Dave" won't fire on "Davenport".
-                pattern = r"\b(" + "|".join(re.escape(n) for n in names) + r")\b"
+                # Per-name boundaries (see _name_pattern): whole-word for ASCII
+                # names, substring for CJK/punctuation-edged names.
+                pattern = "(" + "|".join(_name_pattern(n) for n in names) + ")"
                 regex = re.compile(pattern, re.IGNORECASE)
             else:
                 regex = None
@@ -83,11 +107,13 @@ class AutoDetect(commands.Cog):
             key = (message.guild.id, message.author.id, name_lower)
             if now - self._cooldowns.get(key, 0.0) < COOLDOWN_SECONDS:
                 continue  # this user already triggered this name recently
-            self._cooldowns[key] = now
             prev, _ = await db.log_mention(
                 message.guild.id, name_lower, message.author.id
             )
             if prev is not None:  # None only if the name was removed mid-flight
+                # Arm the cooldown only once the mention is actually recorded, so
+                # a failed or no-op log doesn't suppress the next real attempt.
+                self._cooldowns[key] = now
                 logged_any = True
 
         if logged_any:

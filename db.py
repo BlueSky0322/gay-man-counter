@@ -214,14 +214,15 @@ async def top_mentioner(guild_id: int, name: str) -> dict | None:
     return rows[0] if rows else None
 
 
-async def rank_of(guild_id: int, name: str, user_id: int) -> int | None:
-    """A user's 1-based rank on a person's leaderboard, or None if absent."""
+async def rank_of(guild_id: int, name: str, count: int) -> int:
+    """1-based rank of a given mention `count` on a person's leaderboard.
+
+    The caller already knows the user's tally (log_mention returns it), so we
+    only need to count how many mentioners are strictly ahead — no extra fetch.
+    """
     nl = _norm(name)
-    me = await _mentions().find_one({"_id": f"{guild_id}:{nl}:{user_id}"})
-    if not me:
-        return None
     higher = await _mentions().count_documents(
-        {"guild_id": guild_id, "name_lower": nl, "count": {"$gt": me["count"]}}
+        {"guild_id": guild_id, "name_lower": nl, "count": {"$gt": count}}
     )
     return higher + 1
 
@@ -303,6 +304,11 @@ async def add_jail(guild_id: int, user_id: int, role_id, expires_at) -> None:
         },
         upsert=True,
     )
+
+
+async def get_jail(guild_id: int, user_id: int) -> dict | None:
+    """One jail record, or None."""
+    return await _db()["jails"].find_one({"_id": f"{guild_id}:{user_id}"})
 
 
 async def due_jails(now) -> list[dict]:

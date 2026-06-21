@@ -8,27 +8,19 @@ from discord.ext import commands
 
 import db
 import theme
+from cogs.board import person_autocomplete
 
 
 class Admin(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def _person_ac(self, interaction: discord.Interaction, current: str):
-        names = await db.list_person_names(interaction.guild_id)
-        current = current.lower()
-        return [
-            app_commands.Choice(name=n, value=n)
-            for n in names
-            if current in n.lower()
-        ][:25]
-
     @app_commands.command(
         name="remove",
         description="Remove a person (and all their mentions) from the board.",
     )
     @app_commands.describe(person="Who to remove")
-    @app_commands.autocomplete(person=_person_ac)
+    @app_commands.autocomplete(person=person_autocomplete)
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.guild_only()
     async def remove(self, interaction: discord.Interaction, person: str):

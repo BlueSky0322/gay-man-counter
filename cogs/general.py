@@ -112,8 +112,7 @@ class General(commands.Cog):
             inline=False,
         )
         embed.set_footer(text=f"{self.bot.user.name} • 13 commands")
-        if interaction.guild and interaction.guild.icon:
-            embed.set_thumbnail(url=interaction.guild.icon.url)
+        theme.guild_thumb(interaction, embed)
         await interaction.response.send_message(embed=embed)
 
 

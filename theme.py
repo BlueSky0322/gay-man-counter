@@ -18,3 +18,9 @@ def embed(title=None, description=None, color=BRAND) -> discord.Embed:
     e = discord.Embed(title=title, description=description, color=color)
     e.timestamp = discord.utils.utcnow()
     return e
+
+
+def guild_thumb(interaction: discord.Interaction, embed: discord.Embed) -> None:
+    """Set the guild's icon as the embed thumbnail, if it has one."""
+    if interaction.guild and interaction.guild.icon:
+        embed.set_thumbnail(url=interaction.guild.icon.url)
