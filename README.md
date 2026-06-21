@@ -46,6 +46,18 @@ Everything is **per-server** (scoped by guild ID), so each server it's in keeps 
 
 ---
 
+## Screenshots
+
+_Placeholders — drop your own captures into a `docs/` folder and swap the paths below._
+
+| Command | Preview |
+| --- | --- |
+| `/board` | ![/board](docs/board.png) |
+| `/leaderboard` | ![/leaderboard](docs/leaderboard.png) |
+| `/gayest-man` | ![/gayest-man](docs/gayest-man.png) |
+
+---
+
 ## Tech stack
 
 - **Python 3.11** + [discord.py](https://github.com/Rapptz/discord.py) 2.x (slash commands / app commands)
@@ -157,3 +169,9 @@ After inviting, drag the bot's role **high** in Server Settings → Roles — it
 ## Hosting
 
 Currently run locally. To keep it online 24/7, host it on an always-on machine (e.g. an Oracle Cloud free-tier VPS, a Raspberry Pi, or as a Windows service via NSSM). The MongoDB data lives in Atlas, so it persists across restarts and moves with the bot.
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE).
