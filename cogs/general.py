@@ -60,10 +60,11 @@ class General(commands.Cog):
             theme.BRAND,
         )
         embed.add_field(
-            name="📋 The Board",
+            name="📋 The Gay Men Board",
             value=(
                 "`/mention person:<name> [by:@user]` — log a mention (credit someone else with `by`)\n"
                 "`/board [person:<name>]` — full board, or one person's detail card\n"
+                "\n"
                 "*e.g.* `/mention person:Dave` → `/board`"
             ),
             inline=False,
@@ -76,6 +77,7 @@ class General(commands.Cog):
                 "`/leaderboard-self` — which person gets mentioned the most\n"
                 "`/gayest-man` — spotlight the single biggest mentioner\n"
                 "`/pusswee` — crowns the biggest dodger (never mentions the most guys)\n"
+                "\n"
                 "*e.g.* `/leaderboard person:Dave`"
             ),
             inline=False,
@@ -88,10 +90,15 @@ class General(commands.Cog):
         embed.add_field(
             name="🤖 Auto-detect",
             value=(
-                "Just **say a tracked name** in chat and it counts automatically — "
-                "I'll react 📢. (Once per minute per person; `/mention` still works "
+                "Just **say a tracked name** in chat and it counts automatically. "
+                "I'll react 🏳️‍🌈. (10 seconds per person; `/mention` still works "
                 "for manual logs.)"
             ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🔨 Moderation · needs Moderate Members",
+            value="`/hornyjail user:<@user> [user2] [user3]` — mute, deafen, `horni` role + smirk 😏 for 1h",
             inline=False,
         )
         embed.add_field(
@@ -103,7 +110,7 @@ class General(commands.Cog):
             ),
             inline=False,
         )
-        embed.set_footer(text=f"{self.bot.user.name} • 11 commands")
+        embed.set_footer(text=f"{self.bot.user.name} • 12 commands")
         if interaction.guild and interaction.guild.icon:
             embed.set_thumbnail(url=interaction.guild.icon.url)
         await interaction.response.send_message(embed=embed)

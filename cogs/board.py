@@ -104,7 +104,7 @@ class Board(commands.Cog):
         if not people:
             await interaction.response.send_message(
                 embed=theme.embed(
-                    "📋 The Board",
+                    "📋 The Gay Men Board",
                     "Nobody's tracked yet. Add someone with `/add`.",
                     theme.BRAND,
                 )
@@ -136,7 +136,7 @@ class Board(commands.Cog):
                 )
 
         embed = theme.embed(
-            f"📋 The Board — {interaction.guild.name}", "\n".join(lines), theme.BRAND
+            f"📋 The Gay Men Board — {interaction.guild.name}", "\n".join(lines), theme.BRAND
         )
         embed.set_footer(text=f"{len(people)} tracked  •  🔴 <1d   🟡 <1w   🟢 longer   🧊 never")
         self._thumb(interaction, embed)

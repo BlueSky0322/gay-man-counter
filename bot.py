@@ -12,7 +12,13 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("counterbot")
 
-INITIAL_EXTENSIONS = ("cogs.board", "cogs.admin", "cogs.general", "cogs.autodetect")
+INITIAL_EXTENSIONS = (
+    "cogs.board",
+    "cogs.admin",
+    "cogs.general",
+    "cogs.autodetect",
+    "cogs.fun",
+)
 
 
 class CounterBot(commands.Bot):

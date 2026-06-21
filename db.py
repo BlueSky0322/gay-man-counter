@@ -255,3 +255,59 @@ async def mentioned_names_by_user(guild_id: int) -> dict[int, set]:
         {"$group": {"_id": "$user_id", "names": {"$addToSet": "$name_lower"}}},
     ]
     return {d["_id"]: set(d["names"]) async for d in _mentions().aggregate(pipeline)}
+
+
+# --- temporary roles (for the /gay easter egg) ---
+
+async def add_temp_role(guild_id: int, role_id: int, user_id: int, expires_at) -> None:
+    await _db()["temp_roles"].insert_one(
+        {
+            "_id": role_id,
+            "guild_id": guild_id,
+            "user_id": user_id,
+            "expires_at": expires_at,
+        }
+    )
+
+
+async def due_temp_roles(now) -> list[dict]:
+    """Temp roles whose expiry has passed and should be cleaned up."""
+    cursor = _db()["temp_roles"].find({"expires_at": {"$lte": now}})
+    return [doc async for doc in cursor]
+
+
+async def delete_temp_role(role_id: int) -> None:
+    await _db()["temp_roles"].delete_one({"_id": role_id})
+
+
+# --- horny jail sentences ---
+
+async def add_jail(guild_id: int, user_id: int, role_id, expires_at) -> None:
+    await _db()["jails"].update_one(
+        {"_id": f"{guild_id}:{user_id}"},
+        {
+            "$set": {
+                "guild_id": guild_id,
+                "user_id": user_id,
+                "role_id": role_id,
+                "expires_at": expires_at,
+            }
+        },
+        upsert=True,
+    )
+
+
+async def due_jails(now) -> list[dict]:
+    """Jail sentences whose time is up."""
+    cursor = _db()["jails"].find({"expires_at": {"$lte": now}})
+    return [doc async for doc in cursor]
+
+
+async def active_jails() -> list[dict]:
+    """All jail records (used to rebuild in-memory state after a restart)."""
+    cursor = _db()["jails"].find({})
+    return [doc async for doc in cursor]
+
+
+async def delete_jail(guild_id: int, user_id: int) -> None:
+    await _db()["jails"].delete_one({"_id": f"{guild_id}:{user_id}"})

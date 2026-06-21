@@ -11,8 +11,8 @@ from discord.ext import commands
 
 import db
 
-REACT_EMOJI = "📢"        # reaction added to a message that triggered a count
-COOLDOWN_SECONDS = 60      # per (user, name): ignore repeats within this window
+REACT_EMOJI = "🏳️‍🌈"        # reaction added to a message that triggered a count
+COOLDOWN_SECONDS = 10      # per (user, name): ignore repeats within this window
 CACHE_TTL_SECONDS = 30     # how long the per-guild name list is cached in memory
 
 
