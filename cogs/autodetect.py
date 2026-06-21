@@ -25,24 +25,35 @@ class AutoDetect(commands.Cog):
         self._cooldowns: dict[tuple, float] = {}
 
     async def _name_index(self, guild_id: int):
-        """Cached (compiled_regex|None, set_of_name_lowers) for a guild.
+        """Cached (regex|None, name_lowers set, {user_id: name_lower}) for a guild.
 
-        Rebuilt at most once per CACHE_TTL_SECONDS, so a newly /add-ed name
-        starts being detected within that window.
+        Rebuilt at most once per CACHE_TTL_SECONDS, so a newly /add-ed name — or a
+        newly tagged member — starts being detected within that window.
         """
         now = time.monotonic()
         entry = self._cache.get(guild_id)
         if entry is None or entry["expires"] < now:
-            names = {p["name_lower"] for p in await db.list_persons(guild_id)}
+            people = await db.list_persons(guild_id)
+            names = {p["name_lower"] for p in people}
+            # Persons added by tagging a member carry a user_id, so we can also
+            # catch when that member is @mentioned (not just when their name is typed).
+            mentions = {
+                p["user_id"]: p["name_lower"] for p in people if p.get("user_id")
+            }
             if names:
                 # \b...\b = whole-word match, so "Dave" won't fire on "Davenport".
                 pattern = r"\b(" + "|".join(re.escape(n) for n in names) + r")\b"
                 regex = re.compile(pattern, re.IGNORECASE)
             else:
                 regex = None
-            entry = {"expires": now + CACHE_TTL_SECONDS, "regex": regex, "names": names}
+            entry = {
+                "expires": now + CACHE_TTL_SECONDS,
+                "regex": regex,
+                "names": names,
+                "mentions": mentions,
+            }
             self._cache[guild_id] = entry
-        return entry["regex"], entry["names"]
+        return entry["regex"], entry["names"], entry["mentions"]
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -50,12 +61,19 @@ class AutoDetect(commands.Cog):
         if message.author.bot or message.guild is None:
             return
 
-        regex, names = await self._name_index(message.guild.id)
-        if regex is None:
+        regex, names, mentions = await self._name_index(message.guild.id)
+        if regex is None and not mentions:
             return
 
-        # Every tracked name present in the message (each counted at most once).
-        found = {m.lower() for m in regex.findall(message.content)} & names
+        # Every tracked person present — typed names + @mentions of tagged
+        # members — each counted at most once.
+        found = set()
+        if regex is not None:
+            found |= {m.lower() for m in regex.findall(message.content)} & names
+        for u in message.mentions:
+            name_lower = mentions.get(u.id)
+            if name_lower:
+                found.add(name_lower)
         if not found:
             return
 

@@ -105,7 +105,7 @@ class General(commands.Cog):
         embed.add_field(
             name="🛡️ Admin · needs Manage Server",
             value=(
-                "`/add name:<name>` — start tracking someone\n"
+                "`/add name:<name>` or `/add user:@member` — track a name, or tag a member (tag also enables @mention detection)\n"
                 "`/remove person:<name>` — remove someone & wipe their counts\n"
                 "`/reload` — hot-reload cogs after code edits (owner only)"
             ),

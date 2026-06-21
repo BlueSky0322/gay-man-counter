@@ -268,13 +268,41 @@ class Board(commands.Cog):
             embed.set_footer(text=f"Logged by {interaction.user.display_name}")
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="add", description="Add a new person to the board.")
-    @app_commands.describe(name="The name to track")
+    @app_commands.command(
+        name="add", description="Add a person — type a name or tag a member."
+    )
+    @app_commands.describe(
+        name="The name to track (skip if you tag someone)",
+        user="Tag a server member instead — also enables @mention detection",
+    )
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.guild_only()
-    async def add(self, interaction: discord.Interaction, name: str):
-        ok = await db.add_person(interaction.guild_id, name, interaction.user.id)
-        clean = name.strip()
+    async def add(
+        self,
+        interaction: discord.Interaction,
+        name: str | None = None,
+        user: discord.Member | None = None,
+    ):
+        # Tagging a member wins: use their display name and store their ID so
+        # auto-detect can also fire when they're @mentioned.
+        if user is not None:
+            clean, user_id = user.display_name, user.id
+        elif name is not None:
+            clean, user_id = name.strip(), None
+        else:
+            await interaction.response.send_message(
+                embed=theme.embed(
+                    "⚠️ Nothing to Add",
+                    "Give me a `name` to type, or tag a `user`.",
+                    theme.WARNING,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        ok = await db.add_person(
+            interaction.guild_id, clean, interaction.user.id, user_id
+        )
         if not ok:
             existing = await db.get_person(interaction.guild_id, clean)
             embed = theme.embed(
@@ -299,6 +327,12 @@ class Board(commands.Cog):
             name=interaction.user.display_name,
             icon_url=interaction.user.display_avatar.url,
         )
+        if user is not None:
+            embed.add_field(
+                name="🔗 Linked",
+                value=f"{user.mention} — @mentioning them in chat now counts too.",
+                inline=False,
+            )
         embed.add_field(
             name="Next", value=f"Log a sighting with `/mention person:{clean}`", inline=False
         )

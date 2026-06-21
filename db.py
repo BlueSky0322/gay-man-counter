@@ -75,8 +75,14 @@ async def ensure_indexes() -> None:
 
 # --- the board (persons) ---
 
-async def add_person(guild_id: int, name: str, added_by: int) -> bool:
-    """Add a name. Returns False if it already exists."""
+async def add_person(
+    guild_id: int, name: str, added_by: int, user_id: int | None = None
+) -> bool:
+    """Add a name. Returns False if it already exists.
+
+    `user_id` links the person to a real Discord member (set when added by tag),
+    which lets auto-detect also fire on @mentions of that member.
+    """
     name = name.strip()
     nl = _norm(name)
     if await _persons().find_one({"_id": f"{guild_id}:{nl}"}):
@@ -87,6 +93,7 @@ async def add_person(guild_id: int, name: str, added_by: int) -> bool:
             "guild_id": guild_id,
             "name": name,
             "name_lower": nl,
+            "user_id": user_id,
             "added_by": added_by,
             "created_at": _now(),
             "last_mention_at": None,
