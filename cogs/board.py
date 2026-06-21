@@ -142,6 +142,34 @@ class Board(commands.Cog):
         self._thumb(interaction, embed)
         await interaction.response.send_message(embed=embed)
 
+    @app_commands.command(
+        name="list",
+        description="A plain roster of every tracked gay man.",
+    )
+    @app_commands.guild_only()
+    async def list_men(self, interaction: discord.Interaction):
+        people = await db.list_persons(interaction.guild_id)  # sorted by name
+        if not people:
+            await interaction.response.send_message(
+                embed=theme.embed(
+                    "📇 Roster",
+                    "Nobody's tracked yet. An admin can `/add` someone.",
+                    theme.BRAND,
+                )
+            )
+            return
+        lines = [
+            f"`{i + 1:>2}.` **{p['name']}** · added "
+            f"{discord.utils.format_dt(p['created_at'], 'R')} by <@{p['added_by']}>"
+            for i, p in enumerate(people)
+        ]
+        embed = theme.embed(
+            f"📇 Roster — {interaction.guild.name}", "\n".join(lines), theme.BRAND
+        )
+        embed.set_footer(text=f"{len(people)} tracked")
+        self._thumb(interaction, embed)
+        await interaction.response.send_message(embed=embed)
+
     async def _detail(self, interaction: discord.Interaction, person: str):
         """Detail card for one person — used by /board when given a name."""
         p = await db.get_person(interaction.guild_id, person)

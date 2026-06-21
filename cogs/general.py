@@ -64,6 +64,7 @@ class General(commands.Cog):
             value=(
                 "`/mention person:<name> [by:@user]` — log a mention (credit someone else with `by`)\n"
                 "`/board [person:<name>]` — full board, or one person's detail card\n"
+                "`/list` — plain roster of every tracked name\n"
                 "\n"
                 "*e.g.* `/mention person:Dave` → `/board`"
             ),
@@ -97,7 +98,7 @@ class General(commands.Cog):
             inline=False,
         )
         embed.add_field(
-            name="🔨 Moderation · needs Moderate Members",
+            name="🔨 Moderation · anyone can use",
             value="`/hornyjail user:<@user> [user2] [user3]` — mute, deafen, `horni` role + smirk 😏 for 1h",
             inline=False,
         )
@@ -110,7 +111,7 @@ class General(commands.Cog):
             ),
             inline=False,
         )
-        embed.set_footer(text=f"{self.bot.user.name} • 12 commands")
+        embed.set_footer(text=f"{self.bot.user.name} • 13 commands")
         if interaction.guild and interaction.guild.icon:
             embed.set_thumbnail(url=interaction.guild.icon.url)
         await interaction.response.send_message(embed=embed)

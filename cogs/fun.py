@@ -86,7 +86,6 @@ class Fun(commands.Cog):
         user2="(optional) another victim",
         user3="(optional) another victim",
     )
-    @app_commands.default_permissions(moderate_members=True)
     @app_commands.guild_only()
     async def hornyjail(
         self,
@@ -97,6 +96,21 @@ class Fun(commands.Cog):
     ):
         await interaction.response.defer()
         guild = interaction.guild
+
+        # What can we actually do here? Collect anything we're missing so we can
+        # tell the user instead of failing silently.
+        perms = guild.me.guild_permissions
+        missing = [
+            name
+            for name, ok in (
+                ("Manage Channels", perms.manage_channels),
+                ("Manage Roles", perms.manage_roles),
+                ("Move Members", perms.move_members),
+                ("Mute Members", perms.mute_members),
+                ("Deafen Members", perms.deafen_members),
+            )
+            if not ok
+        ]
 
         # Dedupe targets, skip bots.
         targets, seen = [], set()
@@ -155,6 +169,12 @@ class Fun(commands.Cog):
                 value=", ".join(m.mention for m in role_only),
                 inline=False,
             )
+        if missing:
+            embed.add_field(
+                name="⚠️ I'm missing permissions",
+                value="Grant me: " + ", ".join(f"**{m}**" for m in missing),
+                inline=False,
+            )
         embed.timestamp = _now()
         await interaction.followup.send(embed=embed)
 
@@ -177,7 +197,7 @@ class Fun(commands.Cog):
                     view_channel=False, connect=False
                 ),
                 guild.me: discord.PermissionOverwrite(
-                    view_channel=True, connect=True, move_members=True
+                    view_channel=True, connect=True
                 ),
             }
             if role:  # the horni role is the key into the private channel

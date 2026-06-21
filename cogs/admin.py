@@ -1,7 +1,6 @@
 """Admin-only board management + maintenance. Gated behind permissions."""
 
 import importlib
-import os
 
 import discord
 from discord import app_commands
@@ -88,14 +87,9 @@ class Admin(commands.Cog):
             except Exception as e:
                 results.append(f"❌ `{ext}` — {type(e).__name__}: {e}")
 
-        # Re-sync to the dev guild in case a command's signature changed.
-        synced = "—"
-        dev_guild = os.environ.get("DEV_GUILD_ID")
-        if dev_guild:
-            guild = discord.Object(id=int(dev_guild))
-            self.bot.tree.copy_global_to(guild=guild)
-            cmds = await self.bot.tree.sync(guild=guild)
-            synced = str(len(cmds))
+        # Re-sync commands exactly how startup does (respects global vs DEV_SYNC),
+        # so /reload can never create duplicates.
+        synced = await self.bot.sync_commands()
 
         ok = all(line.startswith("✅") for line in results)
         embed = theme.embed(
@@ -103,7 +97,7 @@ class Admin(commands.Cog):
             "\n".join(results),
             theme.SUCCESS if ok else theme.WARNING,
         )
-        embed.set_footer(text=f"{synced} commands synced")
+        embed.set_footer(text=f"Sync: {synced}")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 

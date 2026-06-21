@@ -41,22 +41,35 @@ class CounterBot(commands.Bot):
             await self.load_extension(ext)
             log.info("Loaded extension: %s", ext)
 
-        # 3. Register slash commands. If DEV_GUILD_ID is set, sync to that one
-        #    server for instant updates; otherwise sync globally (slower to
-        #    propagate, but available everywhere the bot is added).
+        # 3. Register slash commands (global by default; DEV_SYNC=1 in .env for
+        #    instant single-guild syncing). Shared with /reload via sync_commands.
+        log.info("Synced %s", await self.sync_commands())
+
+    async def sync_commands(self) -> str:
+        """Sync app commands per the current mode; returns a one-line summary.
+
+        GLOBAL by default — commands work in every server the bot is in, but can
+        take up to ~1h to appear/update. With DEV_SYNC=1 (and DEV_GUILD_ID set),
+        syncs instantly to that one guild instead. Shared by startup AND /reload,
+        so the two can never drift apart and cause duplicate commands.
+        """
         dev_guild = os.environ.get("DEV_GUILD_ID")
-        if dev_guild:
+        if os.environ.get("DEV_SYNC") and dev_guild:
             guild = discord.Object(id=int(dev_guild))
             self.tree.copy_global_to(guild=guild)
             synced = await self.tree.sync(guild=guild)
-            log.info("Synced %d commands to dev guild %s (instant).", len(synced), dev_guild)
-            # Clear any stale GLOBAL commands (e.g. an old /ping) so they don't
-            # show up as duplicates alongside the guild copies.
+            # Keep the global scope empty so it can't duplicate the guild copies.
             self.tree.clear_commands(guild=None)
             await self.tree.sync()
-        else:
-            synced = await self.tree.sync()
-            log.info("Synced %d commands globally (~up to 1h to appear).", len(synced))
+            return f"{len(synced)} commands → guild {dev_guild} (instant)"
+
+        synced = await self.tree.sync()
+        if dev_guild:
+            # Drop any leftover per-guild commands so they don't duplicate globals.
+            guild = discord.Object(id=int(dev_guild))
+            self.tree.clear_commands(guild=guild)
+            await self.tree.sync(guild=guild)
+        return f"{len(synced)} commands globally (~up to 1h to appear/update)"
 
 
 bot = CounterBot()
