@@ -28,6 +28,7 @@ Everything is scoped per-guild (server). Two collections:
 import os
 from datetime import datetime, timezone
 
+import dns_fix  # noqa: F401  — routes all DNS through public resolvers (see module)
 import motor.motor_asyncio
 from pymongo import ReturnDocument
 
