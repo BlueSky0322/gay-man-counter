@@ -1,0 +1,12 @@
+{
+  "name": "gay-man-counter",
+  "version": "1.0.0",
+  "description": "Discord 'days since he was mentioned' board bot (Python / discord.py). package.json is just a task runner — there are no Node dependencies.",
+  "private": true,
+  "scripts": {
+    "dev": "venv\\Scripts\\python.exe -u bot.py",
+    "start": "venv\\Scripts\\python.exe -u bot.py",
+    "check": "venv\\Scripts\\python.exe _check.py",
+    "setup": "python -m venv venv && venv\\Scripts\\python.exe -m pip install -r requirements.txt"
+  }
+}
